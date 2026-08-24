@@ -187,34 +187,52 @@ fn is_executable(path: &Path) -> bool {
 }
 
 fn render(operator: &Operator, state: &State, extras: &HashMap<&str, String>, live: bool) -> Result<String> {
-    let mut payload = operator.wording.clone();
-    let ask = state.ask.as_deref();
-    let objective = state.objective.as_deref();
-    let plan = state.plan.as_deref();
-    let values = [
-        ("ask", ask),
-        ("objective", objective),
-        ("constraints", Some(state.constraints.as_str())),
-        ("plan", plan),
-        ("context", Some(CONTEXT_DEFAULT)),
-    ];
-    for (name, value) in values {
-        if let Some(value) = value {
-            payload = payload.replace(&format!("{{{name}}}"), value);
-        }
+    // Resolution is decided against the TEMPLATE, never the rendered text:
+    // substituted content (a plan about dakka, say) may legitimately contain
+    // literal "{plan}" tokens.
+    let template = &operator.wording;
+    let mut values: HashMap<&str, &str> = HashMap::new();
+    values.insert("constraints", state.constraints.as_str());
+    values.insert("context", CONTEXT_DEFAULT);
+    if let Some(ask) = state.ask.as_deref() {
+        values.insert("ask", ask);
+    }
+    if let Some(objective) = state.objective.as_deref() {
+        values.insert("objective", objective);
+    }
+    if let Some(plan) = state.plan.as_deref() {
+        values.insert("plan", plan);
     }
     for (name, value) in extras {
-        payload = payload.replace(&format!("{{{name}}}"), value);
+        values.insert(name, value.as_str());
     }
-    if live {
-        let unresolved: Vec<_> = VARIABLES
-            .iter()
-            .filter(|name| payload.contains(&format!("{{{name}}}")))
-            .copied()
-            .collect();
-        if !unresolved.is_empty() {
-            bail!("operator payload has unresolved variables: {}", unresolved.join(", "));
+    let mut unresolved = Vec::new();
+    let mut payload = String::with_capacity(template.len());
+    let mut rest = template.as_str();
+    while let Some(open) = rest.find('{') {
+        payload.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close) if VARIABLES.contains(&&after[..close]) => {
+                let name = &after[..close];
+                match values.get(name) {
+                    Some(value) => payload.push_str(value),
+                    None => {
+                        unresolved.push(name);
+                        payload.push_str(&rest[open..open + close + 2]);
+                    }
+                }
+                rest = &after[close + 1..];
+            }
+            _ => {
+                payload.push('{');
+                rest = after;
+            }
         }
+    }
+    payload.push_str(rest);
+    if live && !unresolved.is_empty() {
+        bail!("operator payload has unresolved variables: {}", unresolved.join(", "));
     }
     Ok(payload)
 }
@@ -363,16 +381,36 @@ impl<'a> Runner<'a> {
             bail!("stage '{}': fanout count must be positive", stage.id);
         }
         let pool = &self.loaded.harnesses.fanout;
-        let mut outputs = Vec::with_capacity(n);
+        let extras = HashMap::from([("n", n.to_string())]);
+        let payload = render(&self.loaded.operators[&stage.operator], state, &extras, true)
+            .with_context(|| format!("render stage '{}'", stage.id))?;
+        let mut walkers = Vec::with_capacity(n);
         for index in 0..n {
-            let harness = &pool[index % pool.len()];
-            let extras = HashMap::from([("n", n.to_string())]);
-            let payload = render(&self.loaded.operators[&stage.operator], state, &extras, true)
-                .with_context(|| format!("render stage '{}' walker {}", stage.id, index + 1))?;
-            let artifact = format!("{}-{}", stage.id, index + 1);
-            let raw = self.execute(stage, &artifact, &stage.operator, harness, &payload, stage.quarantine)?;
-            self.accept_named(&artifact, &stage.operator, harness, &raw, "ok")?;
-            outputs.push(Candidate { text: raw.output, stage: stage.id.clone(), index, harness: harness.clone() });
+            let harness = pool[index % pool.len()].as_str();
+            let prepared = self.prepare(stage, &format!("{}-{}", stage.id, index + 1), harness, &payload, stage.quarantine)?;
+            walkers.push(prepared);
+        }
+        // Walkers run concurrently — that is what a fan-out is. Ledger and
+        // record writes happen after the join, in walker order.
+        let results: Vec<(Result<ProcessResult>, f64)> = thread::scope(|scope| {
+            let handles: Vec<_> = walkers
+                .iter()
+                .map(|prepared| {
+                    let harness = &self.loaded.harnesses.harness[&prepared.harness_name];
+                    let (payload, temp) = (payload.as_str(), prepared.temp.as_deref());
+                    scope.spawn(move || timed_invoke(harness, payload, temp))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().map_err(|_| anyhow!("stage '{}': walker thread panicked", stage.id)))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        let mut outputs = Vec::with_capacity(n);
+        for (index, (prepared, (result, duration))) in walkers.iter().zip(results).enumerate() {
+            let raw = self.finish(stage, prepared, &stage.operator, result, duration)?;
+            self.accept_named(&prepared.artifact, &stage.operator, &prepared.harness_name, &raw, "ok")?;
+            outputs.push(Candidate { text: raw.output, stage: stage.id.clone(), index, harness: prepared.harness_name.clone() });
         }
         state.outputs.insert(stage.id.clone(), outputs);
         Ok(())
@@ -455,7 +493,14 @@ impl<'a> Runner<'a> {
         payload: &str,
         quarantine: bool,
     ) -> Result<RawCall> {
+        let prepared = self.prepare(stage, artifact, harness_name, payload, quarantine)?;
         let harness = &self.loaded.harnesses.harness[harness_name];
+        let (result, duration) = timed_invoke(harness, payload, prepared.temp.as_deref());
+        self.finish(stage, &prepared, operator, result, duration)
+    }
+
+    /// Write the payload artifact and create the quarantine dir; no spawn yet.
+    fn prepare(&self, stage: &Stage, artifact: &str, harness_name: &str, payload: &str, quarantine: bool) -> Result<Prepared> {
         let payload_path = self.run_dir.join(format!("{artifact}-payload.txt"));
         let output_path = self.run_dir.join(format!("{artifact}-output.txt"));
         fs::write(&payload_path, payload).with_context(|| format!("stage '{}': write {}", stage.id, payload_path.display()))?;
@@ -463,10 +508,14 @@ impl<'a> Runner<'a> {
         if let Some(path) = &temp {
             fs::create_dir(path).with_context(|| format!("stage '{}': create quarantine {}", stage.id, path.display()))?;
         }
-        let started = Instant::now();
-        let result = invoke_process(harness, payload, temp.as_deref());
-        let duration = started.elapsed().as_secs_f64();
-        if let Some(path) = &temp {
+        Ok(Prepared { artifact: artifact.to_owned(), harness_name: harness_name.to_owned(), payload_path, output_path, temp })
+    }
+
+    /// Record the outcome of an invocation: artifacts, ledger, error posture.
+    fn finish(&mut self, stage: &Stage, prepared: &Prepared, operator: &str, result: Result<ProcessResult>, duration: f64) -> Result<RawCall> {
+        let Prepared { artifact, harness_name, payload_path, output_path, temp } = prepared;
+        let (artifact, harness_name) = (artifact.as_str(), harness_name.as_str());
+        if let Some(path) = temp {
             fs::remove_dir_all(path).with_context(|| format!("stage '{}': remove quarantine {}", stage.id, path.display()))?;
         }
         match result {
@@ -548,9 +597,23 @@ enum ProcessResult {
     Exit(i32, Vec<u8>, Vec<u8>),
 }
 
+struct Prepared {
+    artifact: String,
+    harness_name: String,
+    payload_path: PathBuf,
+    output_path: PathBuf,
+    temp: Option<PathBuf>,
+}
+
+fn timed_invoke(harness: &Harness, payload: &str, cwd: Option<&Path>) -> (Result<ProcessResult>, f64) {
+    let started = Instant::now();
+    let result = invoke_process(harness, payload, cwd);
+    (result, started.elapsed().as_secs_f64())
+}
+
 fn invoke_process(harness: &Harness, payload: &str, cwd: Option<&Path>) -> Result<ProcessResult> {
     let mut command = Command::new(&harness.cmd[0]);
-    command.args(&harness.cmd[1..]).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.args(&harness.cmd[1..]).envs(&harness.env).stdout(Stdio::piped()).stderr(Stdio::piped());
     match harness.prompt {
         PromptMode::Arg => {
             command.arg(payload).stdin(Stdio::null());

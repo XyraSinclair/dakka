@@ -46,6 +46,8 @@ pub struct Harness {
     pub cmd: Vec<String>,
     pub prompt: PromptMode,
     pub timeout_secs: u64,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

@@ -9,6 +9,9 @@ fanout = ["claude", "codex", "gemini"]   # round-robin pool for fanout stages
 cmd = ["claude", "-p", "--dangerously-skip-permissions"]
 prompt = "arg"            # "arg": appended as final argument; "stdin": piped
 timeout_secs = 900
+# env = { SOME_VAR = "1" }   # optional per-harness environment. A harness must
+# return its deliverable as its FINAL output — if you run Stop hooks that
+# append a summary turn, disable them here (they replace the plan with a digest).
 
 [harness.codex]
 cmd = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"]
