@@ -1,0 +1,18 @@
+[package]
+name = "dakka"
+version = "0.1.0"
+edition = "2021"
+description = "Deep planning through compositions of agents. The discipline, not the plumbing."
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+lto = true
+strip = true

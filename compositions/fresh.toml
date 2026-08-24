@@ -1,0 +1,14 @@
+name = "fresh"
+description = "Critique to fixpoint: premortem once, then rounds until a round changes nothing important."
+
+[[stage]]
+id = "premortem"
+kind = "single"
+operator = "premortem"
+
+[[stage]]
+id = "fresh"
+kind = "loop"
+operator = "fresh-critique"
+max_rounds = 8
+stop_sentinel = "DAKKA-FIXPOINT"

@@ -1,0 +1,21 @@
+name = "replan"
+description = "Re-run planning against executed reality: grade the original plan's assumptions, then critique the revised plan to fixpoint. Grades feed the ledger — this is how compositions earn yields."
+
+[[stage]]
+id = "grade"
+kind = "single"
+operator = "grade-assumptions"
+# reads existing PLAN.md as {plan}, current repo/notes as {context};
+# grades append to the ledger
+
+[[stage]]
+id = "fresh"
+kind = "loop"
+operator = "fresh-critique"
+max_rounds = 6
+stop_sentinel = "DAKKA-FIXPOINT"
+
+[[stage]]
+id = "questions"
+kind = "single"
+operator = "human-questions"

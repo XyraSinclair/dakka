@@ -1,0 +1,28 @@
+operator	metric	value	experiment	target_class	model	date	provenance
+simplify-holding-invariants	accepted-deletions/round	4.90	hcp-exp-001-three-arm	design-docs	fable	2026-07-23	pre-registered 3-arm, blind-judged, false-model veto; won 4/5 designs vs book 2.20 and none 1.10
+simplify-holding-invariants	accepted-deletions/round	4.80	hcp-exp-002-epistemic	design-docs	fable	2026-07-23	replication within 0.10; won 5/5 designs vs epistemic class 3.00
+book	accepted-deletions/round	2.20	hcp-exp-001-three-arm	design-docs	fable	2026-07-23	question form licenses "yes it's cogent"; demoted to stance rotation, never opener
+none-baseline	accepted-deletions/round	1.10	hcp-exp-001-three-arm	design-docs	fable	2026-07-23	no-instruction control
+epistemic-class	accepted-deletions/round	3.00	hcp-exp-002-epistemic	design-docs	fable	2026-07-23	precision arm: 30/31 proposals survived blind defense; fewer, deeper cuts
+epistemic-class	blind-defense-survival	30/31	hcp-exp-002-epistemic	design-docs	fable	2026-07-23	component-targeted mid-session is its native regime, untestable one-shot
+simplify-holding-invariants	depth-weighted-pairwise-wins	16/17	hcp-exp-004-depth-pairwise	design-docs	multi	2026-07	champion under depth-weighted pairwise judgment
+judge-invariance	cross-family-agreement	invariant	hcp-exp-003-judge-invariance	design-docs	3-families	2026-07	judge verdicts stable across three model families
+self-advocacy	effect-vs-blind	null (0.904 vs 0.932)	hcp-exp-005-acceptance-regimes	deletions	multi	2026-07	"defend your own work" framing measured null; blind judge only — persona committees inherit this null
+adjudicate	unanimous-verdicts-overturned	24/36	hcp-exp-006-veto-adjudication	deletion-kills	multi	2026-07	prosecutor/advocate/arbiter overturned two-thirds of unanimous vetoes; raw unanimity untrusted
+blind-reduce	accepted-lines-author-blind	~16 (of ~34 proposed)	hcp-exemplar-006	fresh-artifact	fable	2026-07	author's own book pass found nothing the same day; anchoring, measured
+high-trust	lines-deleted/firing	532	hcp-exemplar-005	governance-machinery	fable	2026-07	strongest single kill in the ledger; fifteen words, commit 7bc3f70bf
+slop-audit	lines-deleted/firing	~207	hcp-ledger	built-systems	fable	2026-07	per-firing average from ledger.tsv
+simplify-holding-invariants	lines-deleted/firing	~8	hcp-ledger	mixed	fable	2026-07	field average across all logged firings (design-doc experiments above are its strong regime)
+reduction-on-mature-code	accepted-deletions	~0	hcp-argus35+exemplar-009	production-code	fable	2026-07	7 firings/0 lines; on tight code the climb's value is precision (defend), not kills
+fresh-critique	rounds-to-fixpoint	3-4	fresh-skill-field-use	plans	multi	2026	round 1 real defects, round 2 cross-reference errors, 3-4 converge; provenance J. Emanuel
+one-more-round	post-empty-yield	1+2-rounds	hcp-exemplar-011	extension-design	fable	2026-08	fired after first empty round: one deletion with own defense, shook loose two further rounds
+reinvent-test	closest-call-upheld	-12 lines	hcp-exemplar-010	retained-components	fable	2026-08-18	vanish test on what the sweep passed over; upheld by blind defender
+premortem	unmeasured	-	-	plans	-	-	seeded 2026-08-24; provenance J. Emanuel; earns rows via bench/replan or is pruned
+brenner-slate	unmeasured	-	-	decisions	-	-	seeded 2026-08-24 from brenner method; earns rows via bench/replan or is pruned
+reference-class	unmeasured	-	-	plans	-	-	seeded 2026-08-24
+wall-detection	unmeasured	-	-	plans	-	-	seeded 2026-08-24
+scope-cut	unmeasured	-	-	plans	-	-	seeded 2026-08-24
+adversarial-user	unmeasured	-	-	plans	-	-	seeded 2026-08-24
+bind-objective	unmeasured	-	-	asks	-	-	seeded 2026-08-24; mechanism claim only (inferred objective = largest error source)
+route-contested	unmeasured	-	-	fanouts	-	-	seeded 2026-08-24; least-measured stage in deep-plan, first bench target
+grade-assumptions	unmeasured	-	-	executed-plans	-	-	seeded 2026-08-24; the composition-level flywheel

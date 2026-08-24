@@ -1,0 +1,27 @@
+# harnesses — the agent CLIs dakka orchestrates. Adding one is config,
+# not code: command template, how the prompt is passed, timeout.
+# Copy to harnesses.toml and adjust to what `dakka doctor` finds.
+
+default = "claude"        # harness for single/judge/loop stages
+fanout = ["claude", "codex", "gemini"]   # round-robin pool for fanout stages
+
+[harness.claude]
+cmd = ["claude", "-p", "--dangerously-skip-permissions"]
+prompt = "arg"            # "arg": appended as final argument; "stdin": piped
+timeout_secs = 900
+
+[harness.codex]
+cmd = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"]
+prompt = "stdin"
+timeout_secs = 900
+
+[harness.gemini]
+cmd = ["gemini", "-p"]
+prompt = "arg"
+timeout_secs = 900
+
+# A free local model, an omp headless worker, anything with a CLI:
+# [harness.local]
+# cmd = ["omp", "-p", "--model", "openai-codex/gpt-5.6-sol", "--no-session", "--auto-approve"]
+# prompt = "arg"
+# timeout_secs = 1200

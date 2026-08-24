@@ -1,0 +1,55 @@
+# deep-plan — the default planning composition.
+# Grammar: linear stages only. kind ∈ {single, fanout, judge, loop}.
+# No conditionals, no nested loops — anything fancier is a different
+# composition file.
+
+name = "deep-plan"
+description = "Bind objective, diverge N incumbent-blind planners, blind-judge, route disagreement to trial, critique to fixpoint, compile human questions."
+
+[[stage]]
+id = "bind"
+kind = "single"
+operator = "bind-objective"
+# output becomes {objective}; ambiguities/constraints append to {constraints}
+
+[[stage]]
+id = "diverge"
+kind = "fanout"
+operator = "fresh-plan"
+n = 4
+quarantine = true   # walkers receive objective+constraints ONLY; engine enforces
+# harnesses: round-robin over harnesses.toml [fanout] pool
+
+[[stage]]
+id = "judge"
+kind = "judge"
+operator = "blind-judge"
+inputs = ["diverge"]
+# engine shuffles, strips authorship, labels A/B/C; fresh context.
+# winner becomes {plan}; losers' rejection reasons append to {constraints}
+
+[[stage]]
+id = "route"
+kind = "single"
+operator = "route-contested"
+inputs = ["diverge"]
+# contested claims each go through one `adjudicate` call; rulings fold
+# into {plan}'s disagreement log
+
+[[stage]]
+id = "premortem"
+kind = "single"
+operator = "premortem"
+
+[[stage]]
+id = "fresh"
+kind = "loop"
+operator = "fresh-critique"
+max_rounds = 6
+stop_sentinel = "DAKKA-FIXPOINT"
+
+[[stage]]
+id = "questions"
+kind = "single"
+operator = "human-questions"
+# final {plan} is written to PLAN.md

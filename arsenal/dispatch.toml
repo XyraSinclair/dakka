@@ -1,0 +1,33 @@
+# dispatch — circumstance → operator/composition selection, as data.
+# The engine reads this to pick defaults; users edit it freely. The
+# engine itself contains no selection logic.
+
+[[rule]]
+circumstance = "an ask needs a plan (default)"
+composition = "deep-plan"
+
+[[rule]]
+circumstance = "a plan or artifact was just produced and needs critique"
+composition = "fresh"
+
+[[rule]]
+circumstance = "a design or doc feels bloated; invariants can be named"
+composition = "climb"
+note = "reduction imperative is the measured champion on design docs (4.8-4.9 acc-del/round); near-null on mature production code — there, fire defend at the change instead"
+
+[[rule]]
+circumstance = "reality diverged from an executed plan"
+composition = "replan"
+
+[[rule]]
+circumstance = "existing candidates need comparison"
+verb = "judge"
+note = "blind always; self-advocacy is measured null"
+
+[[rule]]
+circumstance = "a decision has rival explanations nobody has separated"
+operator = "brenner-slate"
+
+[[rule]]
+circumstance = "a plan keeps routing around the same wall"
+operator = "wall-detection"

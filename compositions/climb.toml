@@ -1,0 +1,21 @@
+name = "climb"
+description = "Parsimony walk: name invariants, fire the reduction imperative, accept only deletions that survive defend, stop on measured empty rounds."
+
+[[stage]]
+id = "invariants"
+kind = "single"
+operator = "conserved-quantity"
+# output appends to {constraints} — the invariant list every later stage inherits
+
+[[stage]]
+id = "reduce"
+kind = "loop"
+operator = "simplify-holding-invariants"
+max_rounds = 6
+stop_sentinel = "DAKKA-FIXPOINT"
+
+[[stage]]
+id = "defend"
+kind = "single"
+operator = "defend"
+# the pawl: a surviving finding is a blocking obligation — discharge or revert

@@ -1,0 +1,190 @@
+# dakka arsenal — operator wordings.
+#
+# The engine fires `wording` VERBATIM after substituting {variables};
+# it never paraphrases. Evidence lives in yields.tsv keyed by id; an
+# operator absent from yields.tsv is unmeasured and shows as thin.
+#
+# Template variables the engine resolves from run state:
+#   {ask}         the user's --ask text
+#   {objective}   bound objective (output of bind-objective)
+#   {constraints} constraint / assumption ledger, accumulated across stages
+#   {plan}        current plan text
+#   {candidates}  blinded candidate block (judge/route stages only)
+#
+# Measured wordings are quoted verbatim from their source experiments —
+# do not polish them into frameworks (that instinct is measured-bad:
+# scaffolding tokens dilute; structure goes in the objective, never the
+# procedure).
+
+# ---------------------------------------------------------------- planning
+
+[bind-objective]
+wording = """
+State the real objective of the following ask as one sentence, then list every ambiguity in it that you are tempted to resolve silently — resolve none of them; state each as an open reading with the interpretation you would default to and why. Then list the hard constraints you can infer. The inferred objective is the single largest error source in planning: your job here is to expose it, not to launder it.
+
+Ask: {ask}
+"""
+precondition = "an ask exists"
+stance = "expose the objective's ambiguity instead of resolving it silently"
+
+[fresh-plan]
+wording = """
+Design a complete plan for this objective from scratch.
+
+Objective: {objective}
+
+Constraints and assumptions discovered so far:
+{constraints}
+
+Produce: the chosen path; the options you considered against the objectives (as a table); an assumption ledger — every assumption your plan rests on, each with the cheapest test that would falsify it; steps, each with how we will know it worked; and what you would do first. Prefer a reversible move over a sweeping one. Do not hedge with contingency trees — commit to a path and name the assumptions that would break it.
+"""
+precondition = "bound objective + constraints; walker must NOT see any existing draft (quarantine enforced by the engine)"
+stance = "divergence — full plan from invariants only, no incumbent to anchor on"
+
+[blind-judge]
+wording = """
+Below are {n} candidate plans, labeled anonymously. Judge them on one criterion: which most plausibly achieves the objective while resting on the fewest and best-tested assumptions. Pick exactly one winner. State your verdict first, alone on a line: WINNER: <letter>. Then for each loser, state the single strongest reason it lost — rejection reasons are constraints discovered the hard way and will be kept.
+
+Objective: {objective}
+
+{candidates}
+"""
+precondition = "2+ candidates; engine has shuffled, stripped authorship, and relabeled A/B/C; judge runs in a fresh context"
+stance = "single-criterion blind comparison; losers' reasons are banked, never discarded"
+
+[route-contested]
+wording = """
+Below are {n} plans for the same objective. List the substantive claims on which they AGREE (one line each, no elaboration). Then list the claims on which they genuinely DISAGREE — not phrasing differences, real contested decisions. Each contested claim goes alone on a line beginning exactly "CONTESTED: ", stating the claim and the positions taken. Only the contested list will be adjudicated; be strict about what counts as contested.
+
+Objective: {objective}
+
+{candidates}
+"""
+precondition = "a completed fan-out"
+stance = "spend adjudication only where disagreement lives; adjudicating consensus is spend without learning"
+
+[adjudicate]
+wording = """
+A contested claim from independent plans, to be tried. First argue AS PROSECUTOR: the strongest case that position 1 is wrong. Then AS ADVOCATE: the strongest case that position 1 is right. Then, as a blind arbiter who has read both and holds no stake, rule — and state what evidence would overturn your ruling.
+
+Objective: {objective}
+
+Contested claim: {claim}
+"""
+precondition = "a contested claim from route-contested"
+stance = "adversarial trial; unanimity is not trusted raw (24/36 unanimous verdicts overturned under this structure)"
+
+[premortem]
+wording = """
+Before we proceed, do a "premortem" on this plan. Imagine we're 6 months in the future and this approach has completely failed. What went wrong? What assumptions turned out to be false? What edge cases did we miss? What integration issues did we overlook? What would users hate about it? Now, with that pessimistic scenario fresh in your mind, revise the plan to address the most likely failure modes.
+
+{plan}
+"""
+precondition = "a plan exists; fire once, before the first critique round, never repeatedly"
+stance = "prospective hindsight"
+
+[fresh-critique]
+wording = """
+Once again, check over everything again with fresh eyes looking for any blunders, mistakes, errors, oversights, omissions, problems, misconceptions, bugs, etc. Be SUPER thorough and meticulous!
+
+Apply every fix directly to the plan and return the full revised plan. If a truly careful pass changes nothing important, return the plan unchanged and end your reply with the single line: DAKKA-FIXPOINT
+
+{plan}
+"""
+precondition = "a plan exists"
+stance = "critique to fixpoint; the stop condition is a measured empty round, never a predicted one"
+
+[human-questions]
+wording = """
+Compile this plan's residue down to the questions ONLY the human can answer: unavailable credentials, genuinely irreversible choices, real-world preferences that cannot be inferred. Everything else must be resolved in the plan itself — if you find an unresolved item that does not require the human, resolve it now and fold it in. Return the full plan with a final section "Questions for the human" containing at most five questions, each with the default you would take if unanswered.
+
+{plan}
+"""
+precondition = "a plan that has survived critique"
+stance = "actionability — the human gets decisions, not contingencies"
+
+[grade-assumptions]
+wording = """
+Below is a plan as originally written, and the actual state after execution began. Grade each entry in the plan's assumption ledger: HELD, FAILED, or UNTESTED, with one line of evidence from the actual state. Then state what the original composition should have caught — which failed assumption was findable at planning time, and by what question.
+
+Original plan:
+{plan}
+
+Actual state:
+{context}
+"""
+precondition = "an executed (or diverged) plan and observable current state"
+stance = "close the flywheel — graded assumptions are how compositions earn yields"
+
+# --------------------------------------------- reduction (measured imports)
+
+[simplify-holding-invariants]
+wording = "Simplify this design while holding the invariants.\n\nInvariants:\n{constraints}\n\n{plan}"
+precondition = "candidate exists with a named invariant list"
+stance = "imperative deletion pressure — presupposes deletions exist; closes the 'no, it's fine' exit a question leaves open"
+
+[defend]
+wording = "Steelman the current design. What load-bearing complexity would this simplification delete? What evidence would change your conclusion?\n\nInvariants:\n{constraints}\n\nProposed change:\n{plan}"
+precondition = "an accepted collapse; at canonization, runs blind (fresh context, invariants + diff only)"
+stance = "the pawl — adversary of the adversary; a surviving finding is a blocking obligation, never outvoted"
+
+[book]
+wording = "Are we locking in the most COGENT solution from The Book in the Erdős sense?"
+precondition = "a clean candidate that already survived the imperative; stance rotation, never the opener"
+stance = "ask what a strictly smaller design would delete"
+
+[conserved-quantity]
+wording = "What is actually scarce or invariant here?"
+precondition = "none — the only operator legal on a fresh problem"
+stance = "name the ledger before touching any knob"
+
+[prove-the-need]
+wording = "You haven't proved why we need {x} at all."
+precondition = "a mechanism proposed or built"
+stance = "burden-of-proof inversion — deleted until shown necessary"
+
+[confused-by]
+wording = "I'm confused by the need for {x}, instead of {y} completely handling this."
+precondition = "a component whose justification is unstated"
+stance = "first-person confusion report — cannot be complied with, only resolved by re-derivation"
+
+[why-not-just]
+wording = "Why {x}, instead of just {y}?"
+precondition = "a mechanism with a visibly simpler substitute"
+stance = "the naive question, asked sincerely"
+
+[one-more-round]
+wording = "Assume there is exactly one more accepted deletion in this design. Find it."
+precondition = "at least one measured-empty round, before termination; after termination it becomes vandalism pressure — never fire it there"
+stance = "existence claim as search directive"
+
+# --------------------------------------------------- planning wings (unmeasured)
+
+[brenner-slate]
+wording = """
+Lay out the live hypotheses for this decision as a slate — including the third alternative nobody has stated (both popular readings could be wrong). For each hypothesis, design the cheapest test that would KILL it, not confirm it. Mark which tests discriminate between hypotheses and which merely flatter one.
+
+{plan}
+"""
+precondition = "a decision with rival explanations or approaches"
+stance = "discriminative testing over confirmation"
+
+[reference-class]
+wording = "What happened the last several times someone tried this shape of plan? Name the reference class honestly, its base rate of success, and what the survivors did differently.\n\n{plan}"
+precondition = "a chosen path exists"
+stance = "outside view"
+
+[wall-detection]
+wording = "I suspect this plan is patching around a problem the design should dissolve. Where is the wall we keep routing around, and what re-derivation from first principles would remove it?\n\n{plan}"
+precondition = "a plan with repeated workarounds or special cases"
+stance = "the wall is information"
+
+[scope-cut]
+wording = "Cut this plan to the smallest move that materially advances the objective and is reversible. Name exactly what you cut and what evidence would justify adding each piece back.\n\nObjective: {objective}\n\n{plan}"
+precondition = "a plan suspected of speculative scope"
+stance = "smallest safe move"
+
+[adversarial-user]
+wording = "You are the person who has to live with the result of this plan. What would you hate about it? Be specific and unfair the way real users are.\n\n{plan}"
+precondition = "a plan with a human on the receiving end"
+stance = "hostile empathy"
