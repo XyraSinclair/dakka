@@ -79,7 +79,8 @@ accumulate track records. You are not using a tool; you are feeding one.
 
 A composition is a small data file (`compositions/*.toml`): linear
 stages, each stage = role wording × operator × harness × fan-out × judge
-rule. That's the whole grammar — no conditionals, no loops; anything
+rule. That's the whole grammar — no conditionals, no branching wiring
+(a bounded critique-to-fixpoint loop is a stage *kind*, not wiring); anything
 fancier is a different composition. The engine is a ~300-line DAG runner
 and stays that way.
 
@@ -125,7 +126,7 @@ domain-neutral sections, rewritten in place by every pass:
 
 ## The arsenal — three data files, no code
 
-- **`operators.md`** — verbatim-fireable wordings. Seeded from the
+- **`operators.toml`** — verbatim-fireable wordings. Seeded from the
   hill-climb-parsimony library plus: premortem; brenner slate (hypotheses
   with the third alternative and decisive tests); verification-per-step;
   reference class ("what happened last time someone tried this shape");

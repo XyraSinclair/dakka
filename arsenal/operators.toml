@@ -10,6 +10,10 @@
 #   {constraints} constraint / assumption ledger, accumulated across stages
 #   {plan}        current plan text
 #   {candidates}  blinded candidate block (judge/route stages only)
+#   {n}           candidate count (judge/route stages)
+#   {claim}       one contested claim (adjudicate only)
+#   {context}     actual-state text; defaults to "inspect the repository yourself"
+#   {x} {y}       component slots for targeted epistemic operators
 #
 # Measured wordings are quoted verbatim from their source experiments —
 # do not polish them into frameworks (that instinct is measured-bad:
