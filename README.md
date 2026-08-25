@@ -3,8 +3,9 @@
 Deep planning through compositions of agents. **The discipline, not the
 plumbing.**
 
-> **Status: experiment.** This is totally vibe coded as an experiment and
-> is currently untested and unvalidated. It has completed a handful of
+> **Status: pure vibe-coded slop.** This is a pure experiment — a
+> handful of scrappy prompts and a small runner to fire them, written by
+> an agent, untested and unvalidated. It has completed a handful of
 > end-to-end runs against real agent CLIs — the latest a 22-call
 > deep-plan, unattended, four parallel planners, eight concurrent
 > adjudications, stopping on a natural critique fixpoint at round 5 —
