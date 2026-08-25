@@ -447,7 +447,9 @@ impl<'a> Runner<'a> {
                 .with_context(|| format!("render stage '{}' round {}", stage.id, round))?;
             let artifact = format!("{}-{}", stage.id, round);
             let raw = self.execute(stage, &artifact, &stage.operator, &self.loaded.harnesses.default, &payload, false)?;
-            let hit = raw.output.contains(sentinel);
+            // Exact whole-line match only: a round that merely MENTIONS the
+            // sentinel (a plan about dakka will) must not stop the loop.
+            let hit = raw.output.lines().any(|line| line.trim() == sentinel);
             let outcome = if hit { format!("fixpoint-round-{round}") } else { "ok".to_owned() };
             self.accept_named(&artifact, &stage.operator, &self.loaded.harnesses.default, &raw, &outcome)?;
             state.plan = Some(strip_sentinel_line(&raw.output, sentinel));
