@@ -1,5 +1,8 @@
 # dakka — spec draft v1 (2026-08-23)
 
+> Aspiration, not description. The repo is a pure vibe-coded experiment —
+> a handful of scrappy prompts; see README status for what actually runs.
+
 ## The promise
 
 You have a hard problem and a laptop with three agent CLIs on it. Tonight
