@@ -3,7 +3,7 @@
 ## The promise
 
 You have a hard problem and a laptop with three agent CLIs on it. Tonight
-you can point twelve disciplined minds at that problem — minds that never
+you can point a squad of disciplined minds at that problem — minds that never
 see each other's drafts, get judged blind, argue only where they actually
 disagree, and hand you back one plan with every assumption named and a
 test pinned to each one that would kill it.
@@ -21,7 +21,7 @@ Everyone who's tried to build this built the wrong half. The graveyard is
 full of committee-of-models tools: five vague personas, provider
 adapters, a context packer, a synthesis step that averages the committee
 into porridge. Our own ancestor is in that graveyard —
-`~/projects/archive/p1-moredakka`, 5,800 lines, beautiful README, zero
+our own 5,800-line predecessor, beautiful README, zero
 runs since April. It spent its engineering on plumbing around personas.
 
 Two things changed:
@@ -50,7 +50,7 @@ You're staring at a migration you've put off for a month.
     $ dakka plan --ask "move the ingest fleet off the old scheduler without dropping a row"
 
 `bind` states your objective back at you with the ambiguity you were
-hiding from yourself. Then **six planners you never introduce to each
+hiding from yourself. Then **several planners you never introduce to each
 other** each design the migration from scratch — objective, constraints,
 assumption ledger, nothing else. No incumbent to anchor on, no groupthink
 possible by construction; different harnesses, different failure
@@ -62,7 +62,7 @@ Critique rounds hammer the survivor until a round finds nothing. Then it
 compiles the residue down to the two questions only you can answer, and
 everything else is already resolved in the plan.
 
-Twenty minutes. You spent it making coffee. What's waiting is not a
+An hour, unattended. What's waiting at the end is not a
 report — it's a `PLAN.md` that fights back: every assumption carries the
 cheapest experiment that would falsify it, every step carries "how we
 know it worked," and when reality diverges next week, `dakka replan`
@@ -70,7 +70,7 @@ re-runs the composition against what actually happened and grades the
 original's assumptions held/failed.
 
 Those grades feed the ledger. Which means the thing that makes this
-retardedly exciting: **the tool is a flywheel, not a product.** Every
+genuinely exciting: **the tool is a flywheel, not a product.** Every
 replan, every bench run, every judged round makes the arsenal's numbers
 harder. Operators that stop earning kills get pruned. Compositions
 accumulate track records. You are not using a tool; you are feeding one.
@@ -81,8 +81,8 @@ A composition is a small data file (`compositions/*.toml`): linear
 stages, each stage = role wording × operator × harness × fan-out × judge
 rule. That's the whole grammar — no conditionals, no branching wiring
 (a bounded critique-to-fixpoint loop is a stage *kind*, not wiring); anything
-fancier is a different composition. The engine is a ~300-line DAG runner
-and stays that way.
+fancier is a different composition. The engine is a ~1,100-line
+composition runner and aims to stay near that size.
 
 This is the shareable unit. "Here's the composition I plan migrations
 with" is a real sentence, a file, a repo star, a pull request. The best
@@ -190,15 +190,15 @@ Conscientiousness built into the executable cannot forget:
 
 ## Open questions
 
-- **Seed:** fresh repo, with `~/projects/hill-climb-parsimony` `moves`
-  data as the first arsenal payload (leaning), vs growing `moves` itself.
-- **IP gate:** shipping publishes operator wordings + headline yields;
-  raw experiment ledgers and exemplars stay home. Publication is Xyra's
-  explicit call at every step.
-- **Name:** dakka owns the joke and the lineage. Alternatives welcome but
-  they'd have to beat it.
 - **Route-stage fuzziness:** agreed-vs-contested claim diffing is judge-
-  model-based in v0 and is the least-measured stage — first target for a
-  /fresh pass and the first thing `bench` should learn to score.
-- **From the moredakka archive:** mine the README philosophy section and
-  the output-contract field list; none of the code.
+  model-based in v0 and is the least-measured stage — the first thing
+  `bench` should learn to score.
+- **Resume:** a run is up to ~23 harness calls; one transient error should
+  not discard the spend. Replay from run artifacts is the next engine work.
+- **Capture contract:** some harnesses (notably `claude -p`) return only
+  the final message text; deliverables written before a trailing tool call
+  are dropped. A longest-turn capture mode is planned; until then a
+  harness must return its deliverable as its final output.
+- **Published yields:** the arsenal ships operator wordings + headline
+  yields with provenance ids; the raw experiment ledgers behind them are
+  not in this repo.

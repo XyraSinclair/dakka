@@ -3,6 +3,12 @@
 Deep planning through compositions of agents. **The discipline, not the
 plumbing.**
 
+> **Status: experiment.** This is totally vibe coded as an experiment and
+> is currently untested and unvalidated. It has run end to end against
+> real agent CLIs exactly twice. Read the code before trusting it with
+> anything; expect sharp edges, and see SPEC.md's open questions for the
+> known ones.
+
 You have a hard problem and a laptop with agent CLIs on it (`claude`,
 `codex`, `gemini`, a local model — anything with a prompt-in, text-out
 CLI). dakka points a composition of them at your problem: planners that
