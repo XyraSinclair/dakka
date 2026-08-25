@@ -4,10 +4,14 @@ Deep planning through compositions of agents. **The discipline, not the
 plumbing.**
 
 > **Status: experiment.** This is totally vibe coded as an experiment and
-> is currently untested and unvalidated. It has run end to end against
-> real agent CLIs exactly twice. Read the code before trusting it with
-> anything; expect sharp edges, and see SPEC.md's open questions for the
-> known ones.
+> is currently untested and unvalidated. It has completed a handful of
+> end-to-end runs against real agent CLIs — the latest a 22-call
+> deep-plan, unattended, four parallel planners, eight concurrent
+> adjudications, stopping on a natural critique fixpoint at round 5 —
+> and nothing beyond that. Read the code before trusting it with
+> anything; expect sharp edges (stream-json capture keeps the model's
+> narration blocks alongside the deliverable), and see SPEC.md's open
+> questions for the known ones.
 
 You have a hard problem and a laptop with agent CLIs on it (`claude`,
 `codex`, `gemini`, a local model — anything with a prompt-in, text-out
@@ -66,7 +70,7 @@ are not using a tool; you are feeding one.
     arsenal/           operators.toml · yields.tsv · dispatch.toml
     compositions/      deep-plan · fresh · climb · replan
     harnesses.toml.example
-    src/               the engine (~1.5k lines; a composition runner, nothing more)
+    src/               the engine (~1.4k lines; a composition runner, nothing more)
 
 ## Setup
 

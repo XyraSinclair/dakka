@@ -164,17 +164,22 @@ Conscientiousness built into the executable cannot forget:
 
 ## Commands
 
-    dakka plan [--composition deep-plan] --ask "..."   # the main verb
-    dakka replan          # re-run vs executed state, grade assumptions
-    dakka here            # infer objective from cwd, one bounded pass
-    dakka review|patch --ask "..."
-    dakka climb           # parsimony walk: reduce holding invariants
-    dakka fresh           # critique to fixpoint
-    dakka judge A B ...   # blind adjudication of existing candidates
-    dakka pack|--dry-run  # show selection + payloads, spend nothing
-    dakka bench           # measure an operator on your own repo
-    dakka ledger          # yields per operator and per composition
-    dakka doctor          # which harnesses are installed and authed
+Built today:
+
+    dakka plan --ask "..."     # the main verb: run deep-plan
+    dakka run <composition> --ask/--plan-file   # run any composition
+    dakka resume <run-id>      # replay completed calls, continue from the failure
+    dakka replan               # re-run vs executed state, grade assumptions
+    dakka climb --file X       # parsimony walk: reduce holding invariants
+    dakka fresh                # critique to fixpoint
+    dakka judge A B ...        # blind adjudication of existing files
+    dakka pack --composition   # show the verbatim payloads, spend nothing
+    dakka bench --operator     # fire one operator at one file
+    dakka ledger               # call history: durations, bytes, outcomes
+    dakka doctor               # which harnesses are installed
+
+Speculative (not built): `dakka here` (infer objective from cwd),
+`dakka review|patch`.
 
 ## Hard edges (what dakka refuses to be)
 
@@ -193,12 +198,9 @@ Conscientiousness built into the executable cannot forget:
 - **Route-stage fuzziness:** agreed-vs-contested claim diffing is judge-
   model-based in v0 and is the least-measured stage — the first thing
   `bench` should learn to score.
-- **Resume:** a run is up to ~23 harness calls; one transient error should
-  not discard the spend. Replay from run artifacts is the next engine work.
-- **Capture contract:** some harnesses (notably `claude -p`) return only
-  the final message text; deliverables written before a trailing tool call
-  are dropped. A longest-turn capture mode is planned; until then a
-  harness must return its deliverable as its final output.
+- **Ledger→yields loop:** `bench` and `replan` write the run ledger, but
+  nothing yet promotes ledger evidence into `yields.tsv` — that promotion
+  is still a human act, and the flywheel claim is only as real as it.
 - **Published yields:** the arsenal ships operator wordings + headline
   yields with provenance ids; the raw experiment ledgers behind them are
   not in this repo.
