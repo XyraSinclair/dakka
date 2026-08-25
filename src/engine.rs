@@ -265,6 +265,17 @@ struct RawCall {
     output: String,
     duration_secs: f64,
     bytes_out: usize,
+    replayed: bool,
+}
+
+impl RawCall {
+    fn outcome(&self) -> &'static str {
+        if self.replayed {
+            "replay"
+        } else {
+            "ok"
+        }
+    }
 }
 
 pub struct Runner<'a> {
@@ -273,6 +284,9 @@ pub struct Runner<'a> {
     run_id: String,
     record: RunRecord,
     ledger_path: PathBuf,
+    /// Artifacts from a prior attempt of this run whose outputs are reused
+    /// instead of re-spawned. Empty on a fresh run.
+    replay: std::collections::HashSet<String>,
 }
 
 impl<'a> Runner<'a> {
@@ -292,7 +306,11 @@ impl<'a> Runner<'a> {
             grades: Vec::new(),
             outcome: "running".to_owned(),
         };
-        Ok(Self { loaded, run_dir, run_id, record, ledger_path: dakka_dir.join("ledger.tsv") })
+        Ok(Self { loaded, run_dir, run_id, record, ledger_path: dakka_dir.join("ledger.tsv"), replay: Default::default() })
+    }
+
+    fn replayable(&self, artifact: &str) -> bool {
+        self.replay.contains(artifact)
     }
 
     pub fn run(mut self, mut state: State, n_override: Option<usize>) -> Result<(String, PathBuf)> {
@@ -328,7 +346,7 @@ impl<'a> Runner<'a> {
         let payload = render(&self.loaded.operators[&stage.operator], state, &extras, true)
             .with_context(|| format!("render stage '{}'", stage.id))?;
         let raw = self.execute(stage, &stage.id, &stage.operator, &self.loaded.harnesses.default, &payload, false)?;
-        self.accept(stage, &self.loaded.harnesses.default, &raw, "ok")?;
+        self.accept(stage, &self.loaded.harnesses.default, &raw, raw.outcome())?;
         let output = raw.output;
         if stage.id == "bind" {
             state.objective = Some(output);
@@ -355,14 +373,38 @@ impl<'a> Runner<'a> {
         if claims.len() > 8 {
             eprintln!("stage '{}': capped {} contested claims at 8", stage.id, claims.len());
         }
-        let mut rulings = Vec::new();
+        // Trials are independent of one another — run them concurrently,
+        // with ledger writes sequenced after the join (same shape as fanout).
+        let mut trials = Vec::new();
         for (index, claim) in claims.into_iter().take(8).enumerate() {
             let extras = HashMap::from([("claim", claim.to_owned())]);
             let payload = render(&self.loaded.operators["adjudicate"], state, &extras, true)
                 .with_context(|| format!("render adjudication {} for stage '{}'", index + 1, stage.id))?;
             let artifact = format!("{}-adjudicate-{}", stage.id, index + 1);
-            let raw = self.execute(stage, &artifact, "adjudicate", &self.loaded.harnesses.default, &payload, false)?;
-            self.accept_named(&artifact, "adjudicate", &self.loaded.harnesses.default, &raw, "ok")?;
+            let prepared = self.prepare(stage, &artifact, &self.loaded.harnesses.default, &payload, false)?;
+            trials.push((prepared, payload));
+        }
+        let default_harness = &self.loaded.harnesses.harness[&self.loaded.harnesses.default];
+        let results: Vec<(Result<ProcessResult>, f64)> = thread::scope(|scope| {
+            let handles: Vec<_> = trials
+                .iter()
+                .map(|(prepared, payload)| {
+                    let replayed = self.replayable(&prepared.artifact);
+                    scope.spawn(move || match replayed {
+                        true => (Ok(ProcessResult::Replay), 0.0),
+                        false => timed_invoke(default_harness, payload, None),
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().map_err(|_| anyhow!("stage '{}': adjudication thread panicked", stage.id)))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        let mut rulings = Vec::new();
+        for ((prepared, _), (result, duration)) in trials.iter().zip(results) {
+            let raw = self.finish(stage, prepared, "adjudicate", result, duration)?;
+            self.accept_named(&prepared.artifact, "adjudicate", &prepared.harness_name, &raw, raw.outcome())?;
             rulings.push(raw.output);
         }
         if !rulings.is_empty() {
@@ -398,7 +440,11 @@ impl<'a> Runner<'a> {
                 .map(|prepared| {
                     let harness = &self.loaded.harnesses.harness[&prepared.harness_name];
                     let (payload, temp) = (payload.as_str(), prepared.temp.as_deref());
-                    scope.spawn(move || timed_invoke(harness, payload, temp))
+                    let replayed = self.replayable(&prepared.artifact);
+                    scope.spawn(move || match replayed {
+                        true => (Ok(ProcessResult::Replay), 0.0),
+                        false => timed_invoke(harness, payload, temp),
+                    })
                 })
                 .collect();
             handles
@@ -409,7 +455,7 @@ impl<'a> Runner<'a> {
         let mut outputs = Vec::with_capacity(n);
         for (index, (prepared, (result, duration))) in walkers.iter().zip(results).enumerate() {
             let raw = self.finish(stage, prepared, &stage.operator, result, duration)?;
-            self.accept_named(&prepared.artifact, &stage.operator, &prepared.harness_name, &raw, "ok")?;
+            self.accept_named(&prepared.artifact, &stage.operator, &prepared.harness_name, &raw, raw.outcome())?;
             outputs.push(Candidate { text: raw.output, stage: stage.id.clone(), index, harness: prepared.harness_name.clone() });
         }
         state.outputs.insert(stage.id.clone(), outputs);
@@ -421,15 +467,45 @@ impl<'a> Runner<'a> {
         if candidates.len() < 2 || candidates.len() > 26 {
             bail!("stage '{}': judge needs 2..=26 candidates, got {}", stage.id, candidates.len());
         }
-        candidates.shuffle(&mut rand::thread_rng());
-        let (blocks, mapping) = label_candidates(&candidates);
-        fs::write(self.run_dir.join("mapping.json"), mapping)
-            .with_context(|| format!("write {}/mapping.json", self.run_dir.display()))?;
+        if self.replayable(&stage.id) {
+            // Replaying a judged verdict: restore the prior label order from
+            // mapping.json instead of reshuffling, so "WINNER: A" still names
+            // the same candidate.
+            let mapping_path = self.run_dir.join("mapping.json");
+            let mapping: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(&mapping_path).with_context(|| format!("resume: read {}", mapping_path.display()))?,
+            )
+            .with_context(|| format!("resume: parse {}", mapping_path.display()))?;
+            let entries = mapping.as_object().ok_or_else(|| anyhow!("resume: {} is not an object", mapping_path.display()))?;
+            let mut labels: Vec<_> = entries.keys().cloned().collect();
+            labels.sort();
+            let mut ordered = Vec::with_capacity(candidates.len());
+            for label in &labels {
+                let index = entries[label]["index"]
+                    .as_u64()
+                    .ok_or_else(|| anyhow!("resume: mapping entry '{}' lacks an index", label))? as usize;
+                let position = candidates
+                    .iter()
+                    .position(|candidate| candidate.index == index)
+                    .ok_or_else(|| anyhow!("resume: mapping entry '{}' names candidate index {} which no longer exists", label, index))?;
+                ordered.push(candidates.remove(position));
+            }
+            if !candidates.is_empty() {
+                bail!("resume: mapping.json covers {} candidates but the run produced {} more", ordered.len(), candidates.len());
+            }
+            candidates = ordered;
+        } else {
+            candidates.shuffle(&mut rand::thread_rng());
+            let (_, mapping) = label_candidates(&candidates);
+            fs::write(self.run_dir.join("mapping.json"), mapping)
+                .with_context(|| format!("write {}/mapping.json", self.run_dir.display()))?;
+        }
+        let (blocks, _) = label_candidates(&candidates);
         let extras = HashMap::from([("n", candidates.len().to_string()), ("candidates", blocks)]);
         let payload = render(&self.loaded.operators[&stage.operator], state, &extras, true)
             .with_context(|| format!("render stage '{}'", stage.id))?;
         let raw = self.execute(stage, &stage.id, &stage.operator, &self.loaded.harnesses.default, &payload, false)?;
-        self.accept(stage, &self.loaded.harnesses.default, &raw, "ok")?;
+        self.accept(stage, &self.loaded.harnesses.default, &raw, raw.outcome())?;
         let winner = parse_winner(&raw.output).with_context(|| format!("stage '{}': judge output must contain one line 'WINNER: <letter>'", stage.id))?;
         let index = (winner as u8 - b'A') as usize;
         let chosen = candidates.get(index).ok_or_else(|| anyhow!("stage '{}': judge chose {}, but only {} candidates exist", stage.id, winner, candidates.len()))?;
@@ -450,7 +526,7 @@ impl<'a> Runner<'a> {
             // Exact whole-line match only: a round that merely MENTIONS the
             // sentinel (a plan about dakka will) must not stop the loop.
             let hit = raw.output.lines().any(|line| line.trim() == sentinel);
-            let outcome = if hit { format!("fixpoint-round-{round}") } else { "ok".to_owned() };
+            let outcome = if hit { format!("fixpoint-round-{round}") } else { raw.outcome().to_owned() };
             self.accept_named(&artifact, &stage.operator, &self.loaded.harnesses.default, &raw, &outcome)?;
             state.plan = Some(strip_sentinel_line(&raw.output, sentinel));
             self.snapshot(stage, state)?;
@@ -496,8 +572,12 @@ impl<'a> Runner<'a> {
         quarantine: bool,
     ) -> Result<RawCall> {
         let prepared = self.prepare(stage, artifact, harness_name, payload, quarantine)?;
-        let harness = &self.loaded.harnesses.harness[harness_name];
-        let (result, duration) = timed_invoke(harness, payload, prepared.temp.as_deref());
+        let (result, duration) = if self.replayable(artifact) {
+            (Ok(ProcessResult::Replay), 0.0)
+        } else {
+            let harness = &self.loaded.harnesses.harness[harness_name];
+            timed_invoke(harness, payload, prepared.temp.as_deref())
+        };
         self.finish(stage, &prepared, operator, result, duration)
     }
 
@@ -510,6 +590,7 @@ impl<'a> Runner<'a> {
         if let Some(path) = &temp {
             fs::create_dir(path).with_context(|| format!("stage '{}': create quarantine {}", stage.id, path.display()))?;
         }
+        eprintln!("dakka: {} [{}] started", artifact, harness_name);
         Ok(Prepared { artifact: artifact.to_owned(), harness_name: harness_name.to_owned(), payload_path, output_path, temp })
     }
 
@@ -523,18 +604,33 @@ impl<'a> Runner<'a> {
         match result {
             Ok(ProcessResult::Ok(bytes)) => {
                 fs::write(&output_path, &bytes).with_context(|| format!("stage '{}': write {}", stage.id, output_path.display()))?;
-                let output = match String::from_utf8(bytes) {
+                let raw_stdout = match String::from_utf8(bytes) {
                     Ok(output) => output,
                     Err(error) => {
                         self.failed_call(artifact, operator, harness_name, duration, error.as_bytes().len(), "error")?;
                         bail!("harness '{}' stage '{}' emitted non-UTF-8 stdout; artifacts: {}, {}", harness_name, stage.id, payload_path.display(), output_path.display());
                     }
                 };
-                if output.trim().is_empty() {
-                    self.failed_call(artifact, operator, harness_name, duration, 0, "error")?;
-                    bail!("harness '{}' stage '{}' emitted empty stdout; artifacts: {}, {}", harness_name, stage.id, payload_path.display(), output_path.display());
+                let harness = &self.loaded.harnesses.harness[harness_name];
+                match extract_deliverable(&raw_stdout, harness) {
+                    Ok(output) => {
+                        eprintln!("dakka: {} [{}] done ({:.0}s, {} bytes)", artifact, harness_name, duration, output.len());
+                        Ok(RawCall { bytes_out: output.len(), output, duration_secs: duration, replayed: false })
+                    }
+                    Err(error) => {
+                        self.failed_call(artifact, operator, harness_name, duration, raw_stdout.len(), "error")?;
+                        Err(error).with_context(|| format!("harness '{}' stage '{}'; artifacts: {}, {}", harness_name, stage.id, payload_path.display(), output_path.display()))
+                    }
                 }
-                Ok(RawCall { bytes_out: output.len(), output, duration_secs: duration })
+            }
+            Ok(ProcessResult::Replay) => {
+                let raw_stdout = fs::read_to_string(output_path)
+                    .with_context(|| format!("resume: stage '{}' artifact {} was marked replayable but its output is unreadable", stage.id, output_path.display()))?;
+                let harness = &self.loaded.harnesses.harness[harness_name];
+                let output = extract_deliverable(&raw_stdout, harness)
+                    .with_context(|| format!("resume: stage '{}' artifact {} no longer passes capture/floor", stage.id, output_path.display()))?;
+                eprintln!("dakka: {} [{}] replayed ({} bytes)", artifact, harness_name, output.len());
+                Ok(RawCall { bytes_out: output.len(), output, duration_secs: 0.0, replayed: true })
             }
             Ok(ProcessResult::Timeout(bytes)) => {
                 fs::write(&output_path, &bytes).with_context(|| format!("stage '{}': write {}", stage.id, output_path.display()))?;
@@ -597,6 +693,8 @@ enum ProcessResult {
     Ok(Vec<u8>),
     Timeout(Vec<u8>),
     Exit(i32, Vec<u8>, Vec<u8>),
+    /// Reuse the artifact from a prior attempt of this run (resume).
+    Replay,
 }
 
 struct Prepared {
@@ -611,6 +709,49 @@ fn timed_invoke(harness: &Harness, payload: &str, cwd: Option<&Path>) -> (Result
     let started = Instant::now();
     let result = invoke_process(harness, payload, cwd);
     (result, started.elapsed().as_secs_f64())
+}
+
+/// Apply the harness's capture mode and output floor to raw stdout.
+fn extract_deliverable(raw_stdout: &str, harness: &Harness) -> Result<String> {
+    let output = match harness.capture {
+        CaptureMode::Text => raw_stdout.to_owned(),
+        CaptureMode::StreamJson => extract_stream_text(raw_stdout)?,
+    };
+    if output.trim().is_empty() {
+        bail!("harness emitted empty output");
+    }
+    if output.len() < harness.min_output_bytes {
+        bail!("harness output {} bytes, below the configured floor of {} (min_output_bytes) — likely a truncated deliverable", output.len(), harness.min_output_bytes);
+    }
+    Ok(output)
+}
+
+/// Concatenate every assistant text block from a Claude Code stream-json
+/// event log. Plain `claude -p` returns only the final message; text the
+/// model wrote before a trailing tool call is silently dropped. Reading the
+/// full stream recovers it.
+fn extract_stream_text(raw: &str) -> Result<String> {
+    let mut blocks = Vec::new();
+    for line in raw.lines() {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if event["type"] == "assistant" {
+            if let Some(content) = event["message"]["content"].as_array() {
+                for block in content {
+                    if block["type"] == "text" {
+                        if let Some(text) = block["text"].as_str() {
+                            if !text.trim().is_empty() {
+                                blocks.push(text.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if blocks.is_empty() {
+        bail!("stream-json capture found no assistant text blocks (is this harness actually emitting Claude Code stream-json?)");
+    }
+    Ok(blocks.join("\n\n"))
 }
 
 fn invoke_process(harness: &Harness, payload: &str, cwd: Option<&Path>) -> Result<ProcessResult> {
@@ -723,10 +864,13 @@ fn parse_winner(output: &str) -> Result<char> {
             (letter.is_ascii_uppercase() && chars.next().is_none()).then_some(letter)
         })
         .collect();
-    match matches.as_slice() {
+    let mut unique = matches.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    match unique.as_slice() {
         [winner] => Ok(*winner),
         [] => bail!("winner line absent"),
-        _ => bail!("multiple winner lines"),
+        _ => bail!("conflicting winner lines: {}", unique.iter().map(char::to_string).collect::<Vec<_>>().join(", ")),
     }
 }
 
@@ -783,13 +927,134 @@ fn run_json(record: &RunRecord) -> String {
     )
 }
 
-pub fn run_composition(loaded: &Loaded, ask: Option<String>, plan: Option<String>, n: Option<usize>, out: &Path) -> Result<PathBuf> {
+pub fn run_composition(
+    loaded: &Loaded,
+    ask: Option<String>,
+    plan: Option<String>,
+    n: Option<usize>,
+    out: &Path,
+    force: bool,
+    input_path: Option<&Path>,
+) -> Result<PathBuf> {
+    guard_out(out, input_path, force)?;
     let ask_text = ask.clone().unwrap_or_default();
-    let state = State { ask, plan, ..State::default() };
+    let state = State { ask: ask.clone(), plan: plan.clone(), ..State::default() };
     let runner = Runner::new(loaded, &loaded.composition.name, &ask_text)?;
+    // Record the invocation so `dakka resume <run-id>` can reconstruct it.
+    if let Some(plan) = &plan {
+        fs::write(runner.run_dir.join("input-plan.md"), plan)
+            .with_context(|| format!("write {}/input-plan.md", runner.run_dir.display()))?;
+    }
+    let invocation = serde_json::json!({
+        "composition": loaded.composition.name,
+        "ask": ask,
+        "n": n,
+        "out": out.to_string_lossy(),
+    });
+    fs::write(runner.run_dir.join("invocation.json"), invocation.to_string())
+        .with_context(|| format!("write {}/invocation.json", runner.run_dir.display()))?;
+    let run_id = runner.run_id.clone();
     let (final_plan, _) = runner.run(state, n)?;
-    fs::write(out, final_plan).with_context(|| format!("write final plan {}", out.display()))?;
+    write_plan(out, &final_plan, &run_id, &loaded.composition.name)?;
     Ok(out.to_path_buf())
+}
+
+/// Resume a failed or interrupted run in its original run directory.
+/// Every call whose prior outcome was ok (or a sentinel stop, or itself a
+/// replay) is reused from its saved artifact; only failed and never-reached
+/// calls spawn.
+pub fn resume(run_id: &str, force: bool) -> Result<PathBuf> {
+    let cwd = env::current_dir().context("resolve current directory")?;
+    let run_dir = cwd.join(".dakka/runs").join(run_id);
+    let invocation: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(run_dir.join("invocation.json"))
+            .with_context(|| format!("read {}/invocation.json — only runs started by this dakka version can resume", run_dir.display()))?,
+    )
+    .with_context(|| format!("parse {}/invocation.json", run_dir.display()))?;
+    let composition = invocation["composition"]
+        .as_str()
+        .ok_or_else(|| anyhow!("invocation.json lacks a composition name"))?
+        .to_owned();
+    let loaded = load(&composition)?;
+    let ask = invocation["ask"].as_str().map(ToOwned::to_owned);
+    let n = invocation["n"].as_u64().map(|n| n as usize);
+    let out = PathBuf::from(
+        invocation["out"].as_str().ok_or_else(|| anyhow!("invocation.json lacks an out path"))?,
+    );
+    let plan = match fs::read_to_string(run_dir.join("input-plan.md")) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).with_context(|| format!("read {}/input-plan.md", run_dir.display())),
+    };
+    let prior: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(run_dir.join("run.json")).with_context(|| format!("read {}/run.json", run_dir.display()))?,
+    )
+    .with_context(|| format!("parse {}/run.json", run_dir.display()))?;
+    let mut replay = std::collections::HashSet::new();
+    for call in prior["calls"].as_array().into_iter().flatten() {
+        let outcome = call["outcome"].as_str().unwrap_or("");
+        if outcome == "ok" || outcome == "replay" || outcome.starts_with("fixpoint-round-") {
+            if let Some(artifact) = call["stage"].as_str() {
+                replay.insert(artifact.to_owned());
+            }
+        }
+    }
+    if replay.is_empty() {
+        eprintln!("dakka: no reusable calls found in {run_id}; running from the start");
+    } else {
+        eprintln!("dakka: resuming {run_id}, reusing {} completed calls", replay.len());
+    }
+    guard_out(&out, None, force)?;
+    println!("run dir: {}", run_dir.display());
+    let record = RunRecord {
+        run_id: run_id.to_owned(),
+        composition: composition.clone(),
+        ask: ask.clone().unwrap_or_default(),
+        stage_order: Vec::new(),
+        calls: Vec::new(),
+        loop_stops: Vec::new(),
+        grades: Vec::new(),
+        outcome: "running".to_owned(),
+    };
+    let runner = Runner {
+        loaded: &loaded,
+        run_dir,
+        run_id: run_id.to_owned(),
+        record,
+        ledger_path: cwd.join(".dakka/ledger.tsv"),
+        replay,
+    };
+    let state = State { ask, plan, ..State::default() };
+    let (final_plan, _) = runner.run(state, n)?;
+    write_plan(&out, &final_plan, run_id, &composition)?;
+    Ok(out)
+}
+
+/// Refuse to overwrite a plan file dakka didn't write, unless forced or the
+/// file is the run's own input.
+fn guard_out(out: &Path, input_path: Option<&Path>, force: bool) -> Result<()> {
+    if force || !out.exists() {
+        return Ok(());
+    }
+    if let Some(input) = input_path {
+        let same = match (input.canonicalize(), out.canonicalize()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        if same {
+            return Ok(());
+        }
+    }
+    let text = fs::read_to_string(out).with_context(|| format!("read {}", out.display()))?;
+    if text.contains("<!-- dakka:run ") {
+        return Ok(());
+    }
+    bail!("refusing to overwrite {} — it exists and was not written by dakka; pass --force or choose a different --out", out.display());
+}
+
+fn write_plan(out: &Path, plan: &str, run_id: &str, composition: &str) -> Result<()> {
+    let text = format!("{}\n\n<!-- dakka:run {} composition {} -->\n", plan.trim_end(), run_id, composition);
+    fs::write(out, text).with_context(|| format!("write final plan {}", out.display()))
 }
 
 pub fn standalone_judge(loaded: &Loaded, files: &[PathBuf], ask: Option<String>) -> Result<()> {

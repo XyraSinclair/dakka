@@ -34,10 +34,19 @@ enum Commands {
         n: Option<usize>,
         #[arg(long, default_value = "PLAN.md")]
         out: PathBuf,
+        #[arg(long)]
+        force: bool,
+    },
+    Resume {
+        run_id: String,
+        #[arg(long)]
+        force: bool,
     },
     Plan {
         #[arg(long)]
         ask: String,
+        #[arg(long)]
+        force: bool,
     },
     Fresh {
         #[arg(long, default_value = "PLAN.md")]
@@ -46,6 +55,8 @@ enum Commands {
     Climb {
         #[arg(long)]
         file: PathBuf,
+        #[arg(long)]
+        force: bool,
     },
     Replan {
         #[arg(long, default_value = "PLAN.md")]
@@ -77,18 +88,22 @@ fn main() -> Result<()> {
             let loaded = engine::load(&composition)?;
             engine::pack(&loaded, ask, read_optional(plan_file.as_deref())?, None)?;
         }
-        Commands::Run { composition, ask, plan_file, n, out } => {
-            run(&composition, ask, read_optional(plan_file.as_deref())?, n, &out)?;
+        Commands::Run { composition, ask, plan_file, n, out, force } => {
+            run(&composition, ask, read_optional(plan_file.as_deref())?, n, &out, force, plan_file.as_deref())?;
         }
-        Commands::Plan { ask } => run("deep-plan", Some(ask), None, None, Path::new("PLAN.md"))?,
+        Commands::Resume { run_id, force } => {
+            let path = engine::resume(&run_id, force)?;
+            println!("plan: {}", path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display());
+        }
+        Commands::Plan { ask, force } => run("deep-plan", Some(ask), None, None, Path::new("PLAN.md"), force, None)?,
         Commands::Fresh { plan_file } => {
-            run("fresh", None, Some(read_required(&plan_file)?), None, Path::new("PLAN.md"))?;
+            run("fresh", None, Some(read_required(&plan_file)?), None, Path::new("PLAN.md"), false, Some(&plan_file))?;
         }
-        Commands::Climb { file } => {
-            run("climb", None, Some(read_required(&file)?), None, Path::new("PLAN.md"))?;
+        Commands::Climb { file, force } => {
+            run("climb", None, Some(read_required(&file)?), None, Path::new("PLAN.md"), force, Some(&file))?;
         }
         Commands::Replan { plan_file } => {
-            run("replan", None, Some(read_required(&plan_file)?), None, Path::new("PLAN.md"))?;
+            run("replan", None, Some(read_required(&plan_file)?), None, Path::new("PLAN.md"), false, Some(&plan_file))?;
         }
         Commands::Judge { file, ask } => {
             let loaded = engine::load("deep-plan")?;
@@ -103,9 +118,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run(composition: &str, ask: Option<String>, plan: Option<String>, n: Option<usize>, out: &Path) -> Result<()> {
+fn run(
+    composition: &str,
+    ask: Option<String>,
+    plan: Option<String>,
+    n: Option<usize>,
+    out: &Path,
+    force: bool,
+    input_path: Option<&Path>,
+) -> Result<()> {
     let loaded = engine::load(composition)?;
-    let path = engine::run_composition(&loaded, ask, plan, n, out)?;
+    let path = engine::run_composition(&loaded, ask, plan, n, out, force, input_path)?;
     println!("plan: {}", path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display());
     Ok(())
 }

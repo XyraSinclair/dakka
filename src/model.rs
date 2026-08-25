@@ -48,6 +48,27 @@ pub struct Harness {
     pub timeout_secs: u64,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub capture: CaptureMode,
+    #[serde(default = "default_min_output_bytes")]
+    pub min_output_bytes: usize,
+}
+
+fn default_min_output_bytes() -> usize {
+    1
+}
+
+/// How to extract the deliverable from harness stdout.
+/// `text`: stdout is the deliverable. `stream-json`: stdout is Claude Code's
+/// stream-json event log; the deliverable is every assistant text block,
+/// concatenated — this recovers text the model wrote before a trailing tool
+/// call, which plain `claude -p` drops from its final-message output.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureMode {
+    #[default]
+    Text,
+    StreamJson,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

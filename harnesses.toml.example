@@ -6,12 +6,19 @@ default = "claude"        # harness for single/judge/loop stages
 fanout = ["claude", "codex", "gemini"]   # round-robin pool for fanout stages
 
 [harness.claude]
-cmd = ["claude", "-p", "--dangerously-skip-permissions"]
-prompt = "arg"            # "arg": appended as final argument; "stdin": piped
+# Read-only permission mode: planning needs to read your repo, not write it.
+# Swap in "--dangerously-skip-permissions" only if you understand what that means.
+cmd = ["claude", "-p", "--permission-mode", "plan", "--output-format", "stream-json", "--verbose"]
+prompt = "stdin"          # "stdin": piped (avoids argv size limits); "arg": final argument
 timeout_secs = 900
-# env = { SOME_VAR = "1" }   # optional per-harness environment. A harness must
-# return its deliverable as its FINAL output — if you run Stop hooks that
-# append a summary turn, disable them here (they replace the plan with a digest).
+# stream-json capture concatenates every assistant text block, recovering
+# deliverable text the model wrote before a trailing tool call — plain
+# `claude -p` silently returns only the final message.
+capture = "stream-json"
+min_output_bytes = 200    # reject obviously-truncated deliverables
+# env = { SOME_VAR = "1" }  # optional per-harness environment. If you run Stop
+# hooks that append a summary turn, disable them here — otherwise the summary
+# replaces the deliverable.
 
 [harness.codex]
 cmd = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"]
