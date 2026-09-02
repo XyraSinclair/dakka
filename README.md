@@ -1,4 +1,4 @@
-# dakka
+# agent-deep-planning (fka dakka)
 
 Deep planning through compositions of agents. **The discipline, not the
 plumbing.**
